@@ -355,3 +355,67 @@ def test_batch_propose_ui_handler(wd, monkeypatch, tmp_path):
     outs = list(fn(d, progress=lambda *a, **k: None))
     assert len(outs) == 3 and "Batch done: 2/2 photos, 4 boxes" in outs[-1][4]
     assert all(len(wd.store().get_image(f)[0]) == 2 for f in ("big.jpg", "small.png"))
+
+
+def _ui(wd):
+    """The app's event handlers by name + the components of the Review form (no server)."""
+    from detkit.app.ui import build_app
+
+    demo = build_app(wd.workdir)
+    fns = {getattr(f.fn, "__name__", ""): f for f in demo.fns.values()}
+    out_blocks = fns["start"].outputs                 # OUT = [ann, st, table, stats, status, plist, counter, *comps]
+    return demo, {k: f.fn for k, f in fns.items()}, out_blocks
+
+
+def _form_input(out_blocks, out, s, **values):
+    pd = pytest.importorskip("pandas")
+    d = {b: None for b in out_blocks}
+    d[out_blocks[1]], d[out_blocks[2]] = s, pd.DataFrame(columns=L.table_headers())
+    comps = out_blocks[7:]
+    for b, v in zip(comps, out[7:]):
+        d[b] = v["value"] if isinstance(v, dict) else v
+    keys = [f.key for f in IMAGE_FIELDS] + [e["key"] for e in Project.load(s["wd"]).extra_image_fields] \
+        if "wd" in s else None
+    for k, v in values.items():
+        d[comps[keys.index(k)]] = v
+    return d
+
+
+def test_extra_property_after_refresh_and_stale_page(wd):
+    pytest.importorskip("gradio")
+    _demo, fn, ob = _ui(wd)                                # page built before any extra property exists
+    s = fn["start"](None)[1]
+    r = fn["add_prop_ev"](s, "moisture", "number", "%")
+    assert r[0]["n_extra"] == 1 and r[1]["visible"] is True
+    r = fn["add_prop_ev"](r[0], "  ", "text", "")         # empty name: a message, no exception
+    assert "Type a name" in r[-3]
+    out = fn["start"](None)                                # browser refresh: same (stale) layout
+    slot0 = out[7 + len(IMAGE_FIELDS)]
+    assert out[1]["n_extra"] == 1 and slot0["visible"] is True and slot0["label"] == "moisture (%)"
+    r = fn["add_prop_ev"](out[1], "moisture", "number", "")   # again: message + box shown, no exception
+    assert "already exists" in r[-3] and r[-2] == "moisture"
+    L.save_review(Project.load(wd.workdir), "big.jpg", [], {"crop": "wheat", "moisture": 11})
+    # a page that does not show the moisture box yet (e.g. other tab) saves: the stored value is kept
+    s = dict(out[1], n_extra=0, wd=wd.workdir)
+    fn["save_only"](_form_input(ob, out, s, crop="wheat", pile_id="p1"))
+    meta = wd.store().get_image("big.jpg")[1]
+    assert meta["moisture"] == 11 and meta["pile_id"] == "p1"
+
+
+def test_unsaved_edits_survive_refresh(wd):
+    pytest.importorskip("gradio")
+    _demo, fn, ob = _ui(wd)
+    out = fn["start"](None)
+    s = dict(out[1], wd=wd.workdir)
+    fn["on_form"](_form_input(ob, out, s, pile_id="p9"))         # typed, not saved
+    drafts = json.loads((wd.workdir / ".app_cache" / "drafts.json").read_text())
+    assert drafts["big.jpg"]["form"][[f.key for f in IMAGE_FIELDS].index("pile_id")] == "p9"
+    _demo2, fn2, ob2 = _ui(wd)                                    # refresh / app restart
+    out2 = fn2["start"](None)
+    assert "Restored your unsaved edits" in out2[4] and "p9" in out2[7:]
+    fn2["save_only"](_form_input(ob2, out2, dict(out2[1], wd=wd.workdir)))
+    assert wd.store().get_image("big.jpg")[1]["pile_id"] == "p9"
+    assert "big.jpg" not in json.loads((wd.workdir / ".app_cache" / "drafts.json").read_text())
+    out3 = _ui(wd)[1]["start"](None)                               # opening a photo does not create a draft
+    assert "Restored" not in out3[4]
+    assert json.loads((wd.workdir / ".app_cache" / "drafts.json").read_text()) == {}

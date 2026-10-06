@@ -27,6 +27,7 @@ except Exception:                                           # pragma: no cover -
 
 HAVE_EDITOR = image_annotator is not None
 CACHE = ".app_cache"
+DRAFTS = "drafts.json"                                      # unsaved edits per photo (survive a refresh / restart)
 MAX_EXTRA = 12                                              # hidden form slots for extra photo properties
 KIND_NAMES = {"text": "str", "number": "float", "whole number": "int"}
 ANN_LABEL = ("Boxes: pick the box tool (first icon) and drag = new box; drag corners/edges = resize; drag inside = "
@@ -76,9 +77,23 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
     def ckpts() -> list[str]:
         return P.find_checkpoints(wd, ckpt, project.proposer_ckpt)
 
+    def load_drafts() -> dict:
+        try:
+            return json.loads((cache / DRAFTS).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def write_drafts(drafts: dict) -> None:
+        cache.mkdir(parents=True, exist_ok=True)
+        tmp = cache / (DRAFTS + ".tmp")
+        tmp.write_text(json.dumps(drafts, default=str), encoding="utf-8")
+        tmp.replace(cache / DRAFTS)                         # atomic: a crash never leaves half a file
+
     def new_state() -> dict:
+        # n_extra: extra-property boxes this page shows (a save never touches the ones it does not show)
         return {"files": L.list_photos(photos), "file": None, "size": None, "scale": 1.0,
-                "boxes": [], "sig0": "[]", "form0": [], "proposer": None, "drafts": {}}
+                "boxes": [], "sig0": "[]", "form0": [], "proposer": None, "drafts": load_drafts(),
+                "n_extra": len(project.extra_image_fields)}
 
     # ---------------------------------------------------------------- components
     with gr.Blocks(title=f"detkit annotation - {wd.name}") as demo:
@@ -182,7 +197,8 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
         form_inputs = set(comps)
 
         def form_of(d) -> list:
-            return [d[c] for c in comps[:len(project.image_fields())]]
+            n = len(IMAGE_FIELDS) + min(d[st].get("n_extra", 0), MAX_EXTRA)
+            return [d[c] for c in comps[:n]]
 
         def pad(form) -> list:
             """Form values for all components (unused extra slots -> None)."""
@@ -264,14 +280,33 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
             if HAVE_EDITOR:
                 crop = form[[f.key for f in IMAGE_FIELDS].index("crop")] if form else None
                 av = gr.update(value=av, label=ANN_LABEL, **label_props(crop))
-            return [av, s, rows_of(s), stats_of(s, form), msg, list_rows(s), counter_of(s), *pad(form)]
+            s["n_extra"] = len(project.extra_image_fields)             # re-sync the boxes with project.json
+            stash(s, form)
+            vals, n = pad(form), len(IMAGE_FIELDS)
+            slot_out = [gr.update(value=v, **extra_slot_props(project, i)) for i, v in enumerate(vals[n:])]
+            return [av, s, rows_of(s), stats_of(s, form), msg, list_rows(s), counter_of(s), *vals[:n], *slot_out]
 
         OUT = [ann, st, table, stats, status, plist, counter, *comps]
 
+        def edited(s, form) -> bool:
+            if json.dumps(s["boxes"], default=str) != s["sig0"]:
+                return True
+            fields = project.image_fields()[:len(form)]                # compare typed values ("" == None)
+            now, errs = L.form_to_meta(list(form), None, fields)
+            return bool(errs) or now != L.form_to_meta(list(s["form0"])[:len(form)], None, fields)[0]
+
         def stash(s, form):
-            """Keep unsaved edits of the current photo as a session draft."""
-            if s["file"] and (json.dumps(s["boxes"], default=str) != s["sig0"] or form != s["form0"]):
-                s["drafts"][s["file"]] = {"boxes": s["boxes"], "form": form, "proposer": s["proposer"]}
+            """Keep unsaved edits of the current photo as a draft (also on disk, so a refresh or an
+            app restart does not lose them); drop the draft once the photo matches what is saved."""
+            if not s["file"]:
+                return
+            old = s["drafts"].get(s["file"])
+            if edited(s, form):
+                s["drafts"][s["file"]] = {"boxes": s["boxes"], "form": list(form), "proposer": s["proposer"]}
+            else:
+                s["drafts"].pop(s["file"], None)
+            if json.dumps(old, default=str) != json.dumps(s["drafts"].get(s["file"]), default=str):
+                write_drafts(s["drafts"])
 
         def open_file(s, name, form_now=None):
             if form_now is not None:
@@ -286,13 +321,15 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
             if len(project.classes) == 1 and not meta.get("crop"):
                 saved_form[[f.key for f in IMAGE_FIELDS].index("crop")] = project.classes[0]
             dr = s["drafts"].pop(name, None)
+            if dr:
+                write_drafts(s["drafts"])                       # view() stores it again if still unsaved
             s.update(file=name, size=size, scale=scale, preview=str(preview), sig0=json.dumps(boxes, default=str),
                      form0=saved_form, proposer=(dr or {}).get("proposer") or meta.get("proposer"))
             if dr:
                 s["boxes"], form = dr["boxes"], dr["form"]
             else:
                 s["boxes"], form = boxes, saved_form
-            msg = ("Restored your unsaved edits for this photo." if dr else
+            msg = ("Restored your unsaved edits for this photo (not saved yet: click Save)." if dr else
                    ("Loaded saved review." if meta.get("reviewed") else
                     ("Loaded unreviewed boxes." if boxes else
                      "No boxes yet: use Proposals or draw boxes.")))
@@ -313,6 +350,7 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
                 raise gr.Error(str(e))
             s["sig0"], s["form0"] = json.dumps(s["boxes"], default=str), form
             s["drafts"].pop(s["file"], None)
+            write_drafts(s["drafts"])
             return s, form, r
 
         # ---------------------------------------------------------------- events
@@ -324,6 +362,7 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
             if HAVE_EDITOR and v is not None:
                 s["boxes"] = L.from_annotator(v.get("boxes"), s["boxes"], s["scale"], s["size"],
                                               project.classes, cur_crop(d))
+            stash(s, form_of(d))
             return s, rows_of(s), stats_of(s, form_of(d))
 
         if HAVE_EDITOR:
@@ -332,6 +371,7 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
 
         def on_table(d):
             s, errs = sync_boxes(d)
+            stash(s, form_of(d))
             return s, (rows_of(s) if not HAVE_EDITOR else gr.skip()), stats_of(s, form_of(d)), \
                 ("Table: " + "; ".join(errs) if errs else "")
 
@@ -369,9 +409,12 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
             crop_dd.change(lambda c: gr.update(label=ANN_LABEL, **label_props(c)), inputs=[crop_dd], outputs=[ann],
                            api_name=False, show_progress="hidden")
 
+        def on_form(d):
+            stash(d[st], form_of(d))
+            return stats_of(d[st], form_of(d))
+
         for c in comps:
-            c.input(lambda d: stats_of(d[st], form_of(d)), inputs={st, *comps}, outputs=[stats],
-                    api_name=False, show_progress="hidden")
+            c.input(on_form, inputs={st, *comps}, outputs=[stats], api_name=False, show_progress="hidden")
 
         def goto(d, target: str):
             s, _ = sync_boxes(d)
@@ -453,18 +496,30 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
         nc_b.click(add_class_ev, inputs=[nc_name, crop_dd], outputs=[crop_dd, ann, status, nc_name],
                    api_name=False)
 
-        def add_prop_ev(name, kind, unit):
-            try:
-                f = L.add_image_field(project, name, KIND_NAMES.get(kind, "str"), unit, max_extra=MAX_EXTRA)
-            except ValueError as e:
-                raise gr.Error(str(e))
-            i = len(project.extra_image_fields) - 1
-            upd = [gr.skip()] * MAX_EXTRA
-            upd[i] = gr.update(value=None, **extra_slot_props(project, i))
-            return (*upd, f"Added property '{f.key}' (project.json updated). Fill it in and Save.", "", "")
+        def add_prop_ev(s, name, kind, unit):
+            """Add a property; on any outcome re-sync the boxes with project.json (a box hidden on this page,
+            e.g. added in another tab, appears with the open photo's saved value; typed values are kept)."""
+            if not (name or "").strip():
+                gr.Warning("Type a name for the new property first.")
+                msg, keep = "Type a name for the new property first.", False
+            else:
+                try:
+                    f = L.add_image_field(project, name, KIND_NAMES.get(kind, "str"), unit, max_extra=MAX_EXTRA)
+                    msg, keep = f"Added property '{f.key}' (project.json updated). Fill it in and Save.", False
+                except ValueError as e:
+                    gr.Warning(str(e))
+                    msg, keep = f"{e}. Its box is shown in the form above.", True
+            s = dict(s)
+            shown, s["n_extra"] = s.get("n_extra", 0), len(project.extra_image_fields)
+            saved = project.store().get_image(s["file"])[1] if s["file"] else {}
+            extra = project.image_fields()[len(IMAGE_FIELDS):]
+            upd = [gr.skip() if i < shown else
+                   gr.update(value=saved.get(extra[i].key) if i < len(extra) else None,
+                             **extra_slot_props(project, i)) for i in range(MAX_EXTRA)]
+            return (s, *upd, msg, name if keep else "", unit if keep else "")
 
-        np_b.click(add_prop_ev, inputs=[np_name, np_kind, np_unit], outputs=[*slots, status, np_name, np_unit],
-                   api_name=False)
+        np_b.click(add_prop_ev, inputs=[st, np_name, np_kind, np_unit],
+                   outputs=[st, *slots, status, np_name, np_unit], api_name=False)
 
         # proposals -------------------------------------------------------------------------------
         def apply_new(d, new, mode_, proposer, msg):
@@ -546,6 +601,13 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
 
         def start(s):
             s = new_state()
+            pending = [f for f in s["files"] if f in s["drafts"]]
+            if pending:                                          # e.g. after a refresh: back to the unsaved work
+                out = open_file(s, pending[0])
+                if len(pending) > 1:
+                    out[OUT.index(status)] += (f" {len(pending)} photos have unsaved edits: "
+                                               + ", ".join(pending[:5]) + (" ..." if len(pending) > 5 else ""))
+                return out
             if s["files"]:
                 return open_file(s, s["files"][0])
             return view(s, [None] * len(comps), "No photos yet: upload some below.")
