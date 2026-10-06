@@ -27,6 +27,8 @@ except Exception:                                           # pragma: no cover -
 
 HAVE_EDITOR = image_annotator is not None
 CACHE = ".app_cache"
+MAX_EXTRA = 12                                              # hidden form slots for extra photo properties
+KIND_NAMES = {"text": "str", "number": "float", "whole number": "int"}
 ANN_LABEL = ("Boxes: pick the box tool (first icon) and drag = new box; drag corners/edges = resize; drag inside = "
              "move; select + Delete key = remove; label tool / double-click = change class")
 
@@ -47,6 +49,16 @@ def make_field_component(f, classes: list[str]):
         return gr.Dropdown(choices=list(f.choices), value=None, label=f.key, info=f.help or None,
                            allow_custom_value=True)
     return gr.Textbox(label=f.key, info=f.help or None, lines=1)
+
+
+def extra_slot_props(project, i: int) -> dict:
+    """Label/visibility of extra-property slot *i* (a Textbox; values are typed on save)."""
+    extra = project.image_fields()[len(IMAGE_FIELDS):]
+    if i >= len(extra):
+        return {"visible": False}
+    f = extra[i]
+    kind = next(k for k, v in KIND_NAMES.items() if v == f.kind)
+    return {"visible": True, "label": L.field_label(f), "info": f"extra property ({kind})"}
 
 
 def _df(rows, headers):
@@ -112,7 +124,7 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
                                                     label="RF-DETR checkpoint (folder with config.json)")
                                 mode = gr.Radio(list(L.MODES), value=L.MODES[0], label="When proposing")
                             with gr.Row():
-                                score = gr.Slider(0.05, 0.95, 0.3, step=0.01, label="score threshold")
+                                score = gr.Slider(0.05, 0.95, 0.5, step=0.01, label="score threshold")
                                 tile = gr.Slider(200, 1600, project.tile, step=50, label="tile (px)")
                                 overlap = gr.Slider(0.0, 0.5, project.overlap, step=0.05, label="overlap")
                                 max_side = gr.Slider(0, 6000, 0, step=100,
@@ -121,14 +133,32 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
                             with gr.Row():
                                 rf_b = gr.Button("Propose with RF-DETR", variant="primary")
                                 clr_b = gr.Button("Start empty (remove all boxes)")
+                            with gr.Row():
+                                all_b = gr.Button("Propose for all unreviewed photos", variant="secondary")
+                                stop_b = gr.Button("Stop", variant="stop")
+                            gr.Markdown("Batch: runs the checkpoint, score threshold, tile / overlap / downscale and "
+                                        "*When proposing* above on every unreviewed photo (each photo's own crop) and "
+                                        "stores the boxes unreviewed. Reviewed photos and photos with unsaved edits "
+                                        "are skipped. *Stop* keeps the photos already done.")
                             if not ck:
                                 gr.Markdown("No checkpoint found (looked in `checkpoints/*/final`, `weights/`). "
                                             "Type a path or draw boxes by hand.")
                     with gr.Column(scale=2):
                         gr.Markdown("### Photo metadata")
-                        gr.Markdown("Grain moisture is assumed constant for all samples and is not recorded.")
+                        gr.Markdown("Grain moisture is assumed constant for all samples and is not recorded "
+                                    "(add it below as an extra property if you measure it).")
                         comps = [make_field_component(f, project.classes) for f in IMAGE_FIELDS]
                         crop_dd = comps[[f.key for f in IMAGE_FIELDS].index("crop")]
+                        slots = [gr.Textbox(lines=1, **extra_slot_props(project, i)) for i in range(MAX_EXTRA)]
+                        comps += slots
+                        with gr.Accordion("Add an extra property", open=False):
+                            gr.Markdown("A new box in this form for every photo (e.g. annotator, moisture). "
+                                        "Saved in `project.json`, so it is there the next time the app opens.")
+                            with gr.Row():
+                                np_name = gr.Textbox(label="name (e.g. annotator, moisture_pct)", scale=2)
+                                np_kind = gr.Dropdown(list(KIND_NAMES), value="text", label="type", scale=1)
+                                np_unit = gr.Textbox(label="unit (optional, e.g. %)", scale=1)
+                            np_b = gr.Button("Add an extra property")
                         stats = gr.Markdown("")
                         with gr.Row():
                             save_b = gr.Button("Save", variant="secondary")
@@ -152,7 +182,11 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
         form_inputs = set(comps)
 
         def form_of(d) -> list:
-            return [d[c] for c in comps]
+            return [d[c] for c in comps[:len(project.image_fields())]]
+
+        def pad(form) -> list:
+            """Form values for all components (unused extra slots -> None)."""
+            return (list(form or []) + [None] * len(comps))[:len(comps)]
 
         def cur_crop(d) -> str | None:
             return d[crop_dd] or None
@@ -230,7 +264,7 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
             if HAVE_EDITOR:
                 crop = form[[f.key for f in IMAGE_FIELDS].index("crop")] if form else None
                 av = gr.update(value=av, label=ANN_LABEL, **label_props(crop))
-            return [av, s, rows_of(s), stats_of(s, form), msg, list_rows(s), counter_of(s), *form]
+            return [av, s, rows_of(s), stats_of(s, form), msg, list_rows(s), counter_of(s), *pad(form)]
 
         OUT = [ann, st, table, stats, status, plist, counter, *comps]
 
@@ -248,7 +282,7 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
             preview, size, scale = L.make_preview(path, cache / "previews")
             store = project.store()
             boxes, meta = store.get_image(name)
-            saved_form = L.meta_to_form(meta)
+            saved_form = L.meta_to_form(meta, project.image_fields())
             if len(project.classes) == 1 and not meta.get("crop"):
                 saved_form[[f.key for f in IMAGE_FIELDS].index("crop")] = project.classes[0]
             dr = s["drafts"].pop(name, None)
@@ -419,6 +453,19 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
         nc_b.click(add_class_ev, inputs=[nc_name, crop_dd], outputs=[crop_dd, ann, status, nc_name],
                    api_name=False)
 
+        def add_prop_ev(name, kind, unit):
+            try:
+                f = L.add_image_field(project, name, KIND_NAMES.get(kind, "str"), unit, max_extra=MAX_EXTRA)
+            except ValueError as e:
+                raise gr.Error(str(e))
+            i = len(project.extra_image_fields) - 1
+            upd = [gr.skip()] * MAX_EXTRA
+            upd[i] = gr.update(value=None, **extra_slot_props(project, i))
+            return (*upd, f"Added property '{f.key}' (project.json updated). Fill it in and Save.", "", "")
+
+        np_b.click(add_prop_ev, inputs=[np_name, np_kind, np_unit], outputs=[*slots, status, np_name, np_unit],
+                   api_name=False)
+
         # proposals -------------------------------------------------------------------------------
         def apply_new(d, new, mode_, proposer, msg):
             s, errs = sync_boxes(d)
@@ -451,6 +498,51 @@ def build_app(workdir: str | Path, *, ckpt: str | None = None, device: str | Non
         pin = {st, table, *comps, ck_dd, score, tile, overlap, max_side, roi, mode}
         rf_b.click(run_rf, inputs=pin, outputs=OUT, api_name=False)
         clr_b.click(run_empty, inputs=pin, outputs=OUT, api_name=False)
+
+        def run_rf_all(d, progress=gr.Progress()):
+            """Batch proposals (a generator: the status line updates per photo and Stop takes effect)."""
+            s, _ = sync_boxes(d)
+            stash(s, form_of(d))                                 # unsaved edits of the open photo win
+            if not d[ck_dd]:
+                raise gr.Error("Choose an RF-DETR checkpoint (folder with config.json).")
+            meta = project.store().load_meta()
+            files = [f for f in L.list_photos(photos)
+                     if not meta.get(f, {}).get("reviewed") and f not in s["drafts"]]
+            if not files:
+                raise gr.Error("No unreviewed photos without unsaved edits.")
+            skip = [gr.skip()] * len(OUT)
+            progress((0, len(files)), desc="loading model", unit="photos")
+            try:
+                bundle = P.load_bundle(d[ck_dd], dev)
+            except (ValueError, FileNotFoundError, OSError) as e:
+                raise gr.Error(str(e))
+            done, n_boxes, failed = 0, 0, []
+            batch = P.propose_photos(project, files, bundle, score=d[score], tile=d[tile], overlap=d[overlap],
+                                     max_side=int(d[max_side] or 0), mode=d[mode])
+            for i, (f, n, why) in enumerate(batch, 1):
+                progress((i, len(files)), desc=f"proposed {f}", unit="photos")
+                if why:
+                    failed.append(f"{f}: {why}")
+                else:
+                    done, n_boxes = done + 1, n_boxes + n
+                out = list(skip)
+                out[OUT.index(status)] = f"Batch: {i}/{len(files)} photos ({n_boxes} boxes so far)..."
+                out[OUT.index(plist)] = list_rows(s)
+                yield out
+            msg = (f"Batch done: {done}/{len(files)} photos, {n_boxes} boxes at score >= {d[score]} (unreviewed: "
+                   "check and Save each photo).")
+            if failed:
+                msg += " Skipped: " + "; ".join(failed[:5]) + (" ..." if len(failed) > 5 else "")
+            if s["file"]:
+                out = open_file(s, s["file"])                    # show the new boxes of the open photo
+                out[OUT.index(status)] = msg
+                yield out
+            else:
+                yield view(s, form_of(d), msg)
+
+        all_ev = all_b.click(run_rf_all, inputs=pin, outputs=OUT, api_name=False)
+        stop_b.click(lambda: "Batch stopped; photos done so far are stored.", outputs=[status], cancels=[all_ev],
+                     api_name=False)
 
         def start(s):
             s = new_state()

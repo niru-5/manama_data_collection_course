@@ -2,11 +2,11 @@
 
 ```bash
 # val tiles from `detkit split`
-$D eval --workdir $W --gt val --model $W/checkpoints/run1/final --score 0.05
+python -m detkit eval --workdir $W --gt val --model $W/checkpoints/run1/final --score 0.05
 # whole reviewed photos (tiled inference)
-$D eval --workdir $W --gt reviewed --model $W/checkpoints/run1/final --score 0.05 --images $W/photos
+python -m detkit eval --workdir $W --gt reviewed --model $W/checkpoints/run1/final --score 0.05 --images $W/photos
 # any COCO file / saved predictions
-$D eval --workdir $W --gt path/to/labels.json --pred predictions.json
+python -m detkit eval --workdir $W --gt path/to/labels.json --pred predictions.json
 ```
 Useful flags: `--map` (mAP@[.5:.95]), `--iou`, `--crop`, `--name`, `--gt-note "human-reviewed val"` (records where the
 ground truth came from).

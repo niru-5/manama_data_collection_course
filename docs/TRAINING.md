@@ -7,11 +7,12 @@
 
 ## Retrain
 ```bash
-W=runs/mine; D=".venv/bin/python -m detkit"
-$D split --workdir $W --from-reviewed --val-sources photoA.jpg,photoB.jpg   # or --val-frac 0.2
-$D train --workdir $W --name run1 --epochs 60 --lr 1e-4
-$D eval  --workdir $W --gt val --model $W/checkpoints/run1/final --score 0.05
-$D app   --workdir $W --ckpt $W/checkpoints/run1/final                       # better proposals next time
+source .venv/bin/activate      # once in every new terminal (see README)
+W=runs/mine
+python -m detkit split --workdir $W --from-reviewed --val-sources photoA.jpg,photoB.jpg   # or --val-frac 0.2
+python -m detkit train --workdir $W --name run1 --epochs 60 --lr 1e-4
+python -m detkit eval  --workdir $W --gt val --model $W/checkpoints/run1/final --score 0.05
+python -m detkit app   --workdir $W --ckpt $W/checkpoints/run1/final                       # better proposals next time
 ```
 `final/` is the best-eval checkpoint. You need at least 2 reviewed photos, and every class in both train and val.
 
@@ -25,14 +26,14 @@ $D app   --workdir $W --ckpt $W/checkpoints/run1/final                       # b
 
 Defaults are stored in `<workdir>/project.json`; override any of them:
 ```bash
-$D train --workdir $W --model small --batch-size 4 --num-workers 2 --epochs 60 --lr 1e-4 --device cuda
+python -m detkit train --workdir $W --model small --batch-size 4 --num-workers 2 --epochs 60 --lr 1e-4 --device cuda
 ```
 Other flags: `--name`, `--grad-accum`, `--no-augment`, `--no-load-best`, `--device cpu`. `--tile` is set at `init`.
 
 ### Hugging Face
 * Base weights download automatically on first `train`/`app` run (internet, no token).
 * Share a model (token with write access):
-  `$D train --workdir $W --name run1 --push-to-hub --hub-model-id <user>/grain-detector`
+  `python -m detkit train --workdir $W --name run1 --push-to-hub --hub-model-id <user>/grain-detector`
 * No GPU: run the same `train` command on Colab / a classmate's machine and copy back `checkpoints/run1/final`.
 
 ## Optional experiment

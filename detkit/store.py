@@ -4,7 +4,7 @@ Layout inside a workdir::
 
     photos/                      copies of the source photos (full resolution)
     annotations/reviewed_coco.json   COCO on the SOURCE photos (full-res pixel coords)
-    meta/image_meta.json         {file_name: {schema.IMAGE_FIELDS..., reviewed, reviewed_at, proposer}}
+    meta/image_meta.json         {file_name: {schema.IMAGE_FIELDS..., extra properties, reviewed, reviewed_at, proposer}}
 
 ``reviewed_coco.json`` annotation extras: ``origin`` (rfdetr|manual), ``score``, and the
 per-box fields of ``schema.BOX_FIELDS`` (``weight_g``, ``box_notes``). Categories = project classes,
@@ -22,9 +22,10 @@ from .schema import BOX_KEYS, IMAGE_KEYS
 
 
 class Store:
-    def __init__(self, workdir: str | Path, classes: list[str]):
+    def __init__(self, workdir: str | Path, classes: list[str], extra_image_keys: list[str] = ()):
         self.workdir = Path(workdir)
         self.classes = list(classes)
+        self.image_keys = [*IMAGE_KEYS, *extra_image_keys]      # metadata keys upsert_image accepts
         self.photos_dir = self.workdir / "photos"
         self.coco_path = self.workdir / "annotations" / "reviewed_coco.json"
         self.meta_path = self.workdir / "meta" / "image_meta.json"
@@ -71,7 +72,7 @@ class Store:
         for i, a in enumerate(coco["annotations"]):      # keep ids dense/unique after deletions
             a["id"] = i
         m = meta.get(file_name, {})
-        m.update({k: v for k, v in (image_meta or {}).items() if k in IMAGE_KEYS})
+        m.update({k: v for k, v in (image_meta or {}).items() if k in self.image_keys})
         m["reviewed"] = bool(reviewed)
         if reviewed:
             m["reviewed_at"] = _dt.datetime.now().isoformat(timespec="seconds")

@@ -17,7 +17,7 @@ from PIL import Image
 
 from .. import coco as C
 from ..merge import iou
-from ..schema import BOX_FIELDS, IMAGE_FIELDS, Field, coerce
+from ..schema import AUTO_IMAGE_KEYS, BOX_FIELDS, EXTRA_KINDS, IMAGE_FIELDS, Field, coerce
 from ..tiling import IMAGE_EXT
 from ..viz import PALETTE
 
@@ -36,12 +36,13 @@ def field_label(f: Field) -> str:
 
 
 # ---- form <-> metadata -----------------------------------------------------------------------
-def meta_to_form(meta: dict) -> list:
-    """Values for the generated form components, in IMAGE_FIELDS order (None = empty)."""
-    return [meta.get(f.key) for f in IMAGE_FIELDS]
+def meta_to_form(meta: dict, fields: list[Field] = IMAGE_FIELDS) -> list:
+    """Values for the generated form components, in *fields* order (None = empty)."""
+    return [meta.get(f.key) for f in fields]
 
 
-def form_to_meta(values: list, prior: dict | None = None) -> tuple[dict, list[str]]:
+def form_to_meta(values: list, prior: dict | None = None,
+                 fields: list[Field] = IMAGE_FIELDS) -> tuple[dict, list[str]]:
     """Coerce form values to typed metadata. Returns ``(meta, errors)``.
 
     Empty fields are omitted, except that a field that had a value in *prior* is set to None
@@ -50,7 +51,7 @@ def form_to_meta(values: list, prior: dict | None = None) -> tuple[dict, list[st
     prior = prior or {}
     meta: dict = {}
     errors: list[str] = []
-    for f, v in zip(IMAGE_FIELDS, values):
+    for f, v in zip(fields, values):
         try:
             c = coerce(f, v)
         except (TypeError, ValueError):
@@ -306,6 +307,24 @@ def add_class(project, name: str) -> str:
     return name
 
 
+def add_image_field(project, name: str, kind: str = "str", unit: str = "", max_extra: int | None = None) -> Field:
+    """Append an extra per-photo property (e.g. annotator, moisture) and save project.json.
+    The key is *name* lower-cased with spaces -> ``_``. Raises ValueError on bad/duplicate names."""
+    key = re.sub(r"\s+", "_", (name or "").strip().lower())
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", key):
+        raise ValueError("property name must start with a letter and use only letters, digits, spaces or _")
+    if kind not in EXTRA_KINDS:
+        raise ValueError(f"kind must be one of {EXTRA_KINDS}, got {kind!r}")
+    taken = {f.key for f in project.image_fields()} | set(AUTO_IMAGE_KEYS) | {"file"}
+    if key in taken:
+        raise ValueError(f"property '{key}' already exists")
+    if max_extra is not None and len(project.extra_image_fields) >= max_extra:
+        raise ValueError(f"at most {max_extra} extra properties")
+    project.extra_image_fields.append({"key": key, "kind": kind, "unit": (unit or "").strip()})
+    project.save()
+    return project.image_fields()[-1]
+
+
 # ---- proposals combine / save ---------------------------------------------------------------------
 MODES = ("replace model boxes (keep manual)", "replace all", "append")
 
@@ -327,8 +346,9 @@ def save_review(project, file_name: str, boxes: list[dict], meta_values: dict | 
         size = im.size
     store = project.store()
     prior = store.get_image(file_name)[1]
-    values = meta_values if isinstance(meta_values, list) else [meta_values.get(f.key) for f in IMAGE_FIELDS]
-    meta, errors = form_to_meta(values, prior)
+    fields = project.image_fields()
+    values = meta_values if isinstance(meta_values, list) else [meta_values.get(f.key) for f in fields]
+    meta, errors = form_to_meta(values, prior, fields)
     if errors:
         raise ValueError("; ".join(errors))
     clean = []

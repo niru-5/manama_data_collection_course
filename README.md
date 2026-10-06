@@ -17,70 +17,80 @@ Retraining the detector is possible (`detkit train`) but optional and not part o
 ## Linux/macOS vs Windows
 Commands are given twice: **Linux/macOS** (bash) and **Windows** (PowerShell). The differences:
 * Path separators: Linux/macOS use `/`, Windows uses `\` (`runs/mine` vs `runs\mine`).
-* The virtual environment: `.venv/bin/python` on Linux/macOS, `.venv\Scripts\python` on Windows.
+* Activating the virtual environment: `source .venv/bin/activate` on Linux/macOS, `.venv\Scripts\activate` on
+  Windows (works in PowerShell and cmd; see below).
 * A long command continues on the next line with `\` (bash) or `` ` `` (PowerShell).
 
-The docs in `docs/` show the Linux/macOS form only; translate it the same way on Windows. `$D` there stands for
-`.venv/bin/python -m detkit` (Windows: `.venv\Scripts\python -m detkit`), `$W` for your workdir (e.g. `runs/mine`).
-Alternative on Windows: use WSL2 (Ubuntu) and follow the Linux commands as written.
+**Activate the virtual environment in every new terminal.** All commands below (`python`, `hf`, `pytest`) assume it
+is active. Run the activate command at least once in each terminal you open, from the repository folder; the
+prompt then starts with `(.venv)`. A new terminal (or a closed one) needs it again. If PowerShell refuses to run
+the activate script ("running scripts is disabled"), run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once,
+then try again.
+
+The docs in `docs/` show the Linux/macOS form only; translate it the same way on Windows. `$W` there stands for your
+workdir (e.g. `runs/mine`). Alternative on Windows: use WSL2 (Ubuntu) and follow the Linux commands as written.
 
 ## Quick start
 
 **Linux/macOS**
 ```bash
-# 1. install (ONE of cpu / gpu)
+# 1. install (ONE of cpu / gpu), then activate the environment
 curl -LsSf https://astral.sh/uv/install.sh | sh                 # uv, once
 uv sync --extra cpu --extra app --extra dev                      # or: --extra gpu
-.venv/bin/python -m detkit doctor
-.venv/bin/python -m pytest -q                                    # environment check (offline)
+source .venv/bin/activate                                        # once in every new terminal
+python -m detkit doctor
+python -m pytest -q                                              # environment check (offline)
 
-# 2. project folder (one workdir = one batch of photos)
-.venv/bin/python -m detkit init --workdir runs/mine --classes corn,peanuts,popcorn_corn,pumpkin,sunflower,wheat \
+# 2. download the baseline model (public, no token needed)
+hf download niru-5/manama_course_rfdetr_grain_detection --local-dir weights/grain_rfdetr_small_v1/final
+
+# 3. project folder (one workdir = one batch of photos)
+python -m detkit init --workdir runs/mine --classes corn,peanuts,popcorn_corn,pumpkin,sunflower,wheat \
     --flow cpu --tile 1500 --proposer-ckpt weights/grain_rfdetr_small_v1/final    # --flow cpu | gpu | hf
 
-# 3. add photos, then open the app (http://127.0.0.1:7860)
-.venv/bin/python -m detkit import-photos --workdir runs/mine --images my_photos/ --crop wheat
-.venv/bin/python -m detkit app --workdir runs/mine --ckpt weights/grain_rfdetr_small_v1/final
+# 4. add photos, then open the app (http://127.0.0.1:7860)
+python -m detkit import-photos --workdir runs/mine --images my_photos/ --crop wheat
+python -m detkit app --workdir runs/mine --ckpt weights/grain_rfdetr_small_v1/final
 ```
 
 **Windows (PowerShell)**
 ```powershell
-# 1. install (ONE of cpu / gpu; gpu needs an NVIDIA driver)
+# 1. install (ONE of cpu / gpu; gpu needs an NVIDIA driver), then activate the environment
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # uv, once
 uv sync --extra cpu --extra app --extra dev                      # or: --extra gpu
-.venv\Scripts\python -m detkit doctor
-.venv\Scripts\python -m pytest -q                                # environment check (offline)
+.venv\Scripts\activate                                           # once in every new terminal
+python -m detkit doctor
+python -m pytest -q                                              # environment check (offline)
 
-# 2. project folder (one workdir = one batch of photos)
-.venv\Scripts\python -m detkit init --workdir runs\mine --classes corn,peanuts,popcorn_corn,pumpkin,sunflower,wheat `
+# 2. download the baseline model (public, no token needed)
+hf download niru-5/manama_course_rfdetr_grain_detection --local-dir weights\grain_rfdetr_small_v1\final
+
+# 3. project folder (one workdir = one batch of photos)
+python -m detkit init --workdir runs\mine --classes corn,peanuts,popcorn_corn,pumpkin,sunflower,wheat `
     --flow cpu --tile 1500 --proposer-ckpt weights\grain_rfdetr_small_v1\final    # --flow cpu | gpu | hf
 
-# 3. add photos, then open the app (http://127.0.0.1:7860)
-.venv\Scripts\python -m detkit import-photos --workdir runs\mine --images my_photos\ --crop wheat
-.venv\Scripts\python -m detkit app --workdir runs\mine --ckpt weights\grain_rfdetr_small_v1\final
+# 4. add photos, then open the app (http://127.0.0.1:7860)
+python -m detkit import-photos --workdir runs\mine --images my_photos\ --crop wheat
+python -m detkit app --workdir runs\mine --ckpt weights\grain_rfdetr_small_v1\final
 ```
 A Hugging Face token (`HF_TOKEN=...` in `.env`) is only needed for pushing a model to the Hub (optional). Never commit it.
 
 ## Data and baseline model (Hugging Face Hub, public: no token needed)
-Dataset: 6 classes, COCO format; read its README. Then try the baseline on a test photo
-(score 0.38 = best-F1 threshold chosen on validation).
+Dataset: 6 classes, COCO format; read its README. Then try the baseline (downloaded in Quick start, step 2) on a
+test photo (score 0.38 = best-F1 threshold chosen on validation).
 
 **Linux/macOS**
 ```bash
-.venv/bin/hf download niru-5/manama_course_dataset_grain_detection --repo-type dataset --local-dir ../data/grain_detection_public
-.venv/bin/hf download niru-5/manama_course_rfdetr_grain_detection --local-dir weights/grain_rfdetr_small_v1/final
-
-.venv/bin/python -m detkit predict --model weights/grain_rfdetr_small_v1/final \
+hf download niru-5/manama_course_dataset_grain_detection --repo-type dataset --local-dir ../data/grain_detection_public
+python -m detkit predict --model weights/grain_rfdetr_small_v1/final \
     --images ../data/grain_detection_public/photos/test/corn_0007.jpg \
     --tile 1500 --overlap 0.2 --score 0.38 --out runs/first_predictions
 ```
 
 **Windows (PowerShell)**
 ```powershell
-.venv\Scripts\hf download niru-5/manama_course_dataset_grain_detection --repo-type dataset --local-dir ..\data\grain_detection_public
-.venv\Scripts\hf download niru-5/manama_course_rfdetr_grain_detection --local-dir weights\grain_rfdetr_small_v1\final
-
-.venv\Scripts\python -m detkit predict --model weights\grain_rfdetr_small_v1\final `
+hf download niru-5/manama_course_dataset_grain_detection --repo-type dataset --local-dir ..\data\grain_detection_public
+python -m detkit predict --model weights\grain_rfdetr_small_v1\final `
     --images ..\data\grain_detection_public\photos\test\corn_0007.jpg `
     --tile 1500 --overlap 0.2 --score 0.38 --out runs\first_predictions
 ```
@@ -107,8 +117,8 @@ Licenses: the code in this repository is MIT (`LICENSE`); the dataset and the mo
 | Your tasks | `TODO(student)` markers | [docs/STUDENT_TASKS.md](docs/STUDENT_TASKS.md) |
 
 Find your tasks in the code: `git grep -n "TODO(student)" -- detkit`. Task table: [docs/STUDENT_TASKS.md](docs/STUDENT_TASKS.md).
-Check your work: `.venv/bin/python -m pytest tests/test_student_tasks.py -q -rs`
-(Windows: `.venv\Scripts\python -m pytest tests\test_student_tasks.py -q -rs`).
+Check your work (environment activated): `python -m pytest tests/test_student_tasks.py -q -rs`
+(Windows: `python -m pytest tests\test_student_tasks.py -q -rs`).
 
 ## Folder map
 ```

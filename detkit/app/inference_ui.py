@@ -93,7 +93,7 @@ def build_inference_tab(project, wd: Path, ckpt: str | None, device: str) -> Non
     ck_dd.change(lambda c: (lambda d: (d["tile"], d["overlap"]))(I.ckpt_defaults(c, project)), inputs=[ck_dd],
                  outputs=[tile, overlap], api_name=False)
 
-    def run(d):
+    def run(d, progress=gr.Progress()):
         paths = [Path(p) for p in (d[files] or [])]
         if not paths:
             raise gr.Error("Upload at least one photo.")
@@ -104,7 +104,8 @@ def build_inference_tab(project, wd: Path, ckpt: str | None, device: str) -> Non
             rows, its, ovs = I.run_inference(
                 paths, per, project, ckpt=d[ck_dd], device=device, score=d[score], tile=int(d[tile]),
                 overlap=float(d[overlap]), max_side=int(d[max_side] or 0), roi_text=d[roi] or "",
-                model_name=d[model_dd], cache=cache)
+                model_name=d[model_dd], cache=cache,
+                on_photo=lambda i, n, name: progress((i, n), desc=f"detecting {name}", unit="photos"))
         except (ValueError, FileNotFoundError, OSError) as e:
             raise gr.Error(str(e))
         csv_path = I.write_results_csv(rows, cache / "results.csv")
@@ -133,7 +134,7 @@ def build_inference_tab(project, wd: Path, ckpt: str | None, device: str) -> Non
 
 
     # ---- scriptable API (used by tests) ------------------------------------------------------
-    def api_infer(paths_json: str, ckpt_dir: str, model_name: str = "count_x_constant", score_thr: float = 0.3,
+    def api_infer(paths_json: str, ckpt_dir: str, model_name: str = "count_x_constant", score_thr: float = 0.5,
                   crop: str = "", weight_g: float = 0.0, save_samples: bool = False) -> dict:
         """Run inference on photo paths (absolute, or names in W/photos); returns result rows."""
         paths = [Path(p) if Path(p).is_absolute() else project.photos_dir / p for p in json.loads(paths_json)]

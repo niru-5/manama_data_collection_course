@@ -15,8 +15,8 @@ Tasks: [STUDENT_TASKS.md](STUDENT_TASKS.md). Per-workdir config: `<workdir>/weig
 
 ## CLI
 ```bash
-$D weight predict   --workdir $W (--predictions P | --use reviewed) [--model NAME] [--reviewed-only] [--out CSV]
-$D weight calibrate --workdir $W        # fits count_x_constant per crop, saves weight_config.json
+python -m detkit weight predict   --workdir $W (--predictions P | --use reviewed) [--model NAME] [--reviewed-only] [--out CSV]
+python -m detkit weight calibrate --workdir $W        # fits count_x_constant per crop, saves weight_config.json
 ```
 `predict` prints per-photo count, estimated weight and error vs `total_weight_g`; models still TODO exit with code 2.
 

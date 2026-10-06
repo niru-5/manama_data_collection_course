@@ -16,15 +16,13 @@ from PIL import Image
 
 from . import coco as C
 from .project import Project
-from .schema import IMAGE_FIELDS, IMAGE_KEYS, coerce
+from .schema import IMAGE_FIELDS, coerce
 from .tiling import IMAGE_EXT
-
-_FIELD = {f.key: f for f in IMAGE_FIELDS}
 
 
 # ---- import-photos ------------------------------------------------------------------------
-def read_meta_file(path: str | Path) -> dict[str, dict]:
-    """``{file_name: {field: value}}`` from a CSV (column ``file`` + schema.IMAGE_KEYS) or JSON
+def read_meta_file(path: str | Path, fields=IMAGE_FIELDS) -> dict[str, dict]:
+    """``{file_name: {field: value}}`` from a CSV (column ``file`` + the *fields* keys) or JSON
     (``{file: {...}}`` or ``[{"file": ..., ...}]``). Unknown columns are ignored; empty -> absent."""
     path = Path(path)
     if path.suffix.lower() == ".json":
@@ -38,8 +36,8 @@ def read_meta_file(path: str | Path) -> dict[str, dict]:
         name = str(r.get("file") or "").strip()
         if not name:
             continue
-        out[Path(name).name] = {k: coerce(_FIELD[k], r[k]) for k in IMAGE_KEYS
-                                if k in r and coerce(_FIELD[k], r[k]) is not None}
+        out[Path(name).name] = {f.key: coerce(f, r[f.key]) for f in fields
+                                if f.key in r and coerce(f, r[f.key]) is not None}
     return out
 
 
@@ -110,7 +108,7 @@ def import_photos(p: Project, images: str | Path, *, defaults: dict | None = Non
 def cmd_import(a) -> int:
     p = Project.load(a.workdir)
     defaults = {"crop": a.crop}
-    rows = read_meta_file(a.meta) if a.meta else None
+    rows = read_meta_file(a.meta, p.image_fields()) if a.meta else None
     try:
         r = import_photos(p, a.images, defaults=defaults, meta_rows=rows, force=a.force,
                           add_class=a.add_class)
@@ -214,7 +212,7 @@ def register(sub) -> None:
     s.add_argument("--workdir", default="runs/default")
     s.add_argument("--images", required=True, help="directory of photos to import")
     s.add_argument("--crop", help="crop/class of all these photos (a project class)")
-    s.add_argument("--meta", help="CSV/JSON with a `file` column + schema.IMAGE_KEYS columns")
+    s.add_argument("--meta", help="CSV/JSON with a `file` column + metadata columns (schema.IMAGE_KEYS + extra properties)")
     s.add_argument("--add-class", help="append this class to the project if it is new")
     s.add_argument("--force", action="store_true", help="overwrite differing photos of the same name")
     s.set_defaults(fn=cmd_import)

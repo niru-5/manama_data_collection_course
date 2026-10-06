@@ -1,6 +1,6 @@
 # Student tasks
 
-Find them with `git grep -n "TODO(student)" -- detkit`. Self-check: `.venv/bin/python -m pytest tests/test_student_tasks.py -q -rs`
+Find them with `git grep -n "TODO(student)" -- detkit`. Self-check: `python -m pytest tests/test_student_tasks.py -q -rs`
 (skipped tests = tasks not done yet; passing tests only check the interface, not whether your approach is sound).
 Statistics need at least 3 weighed photos per crop, otherwise they return `None`.
 All tasks use the provided baseline detector; none of them requires retraining it.

@@ -27,7 +27,7 @@ def load_model(ckpt: str | Path, device: str | None = None):
 
 
 def predict_image(image: Image.Image, model, proc, device: str, *, tile: int, overlap: float,
-                  crop=None, score: float = 0.3, batch: int = 4,
+                  crop=None, score: float = 0.5, batch: int = 4,
                   iou_thr: float = 0.4, ioma_thr: float = 0.7) -> list[dict]:
     import torch
 
@@ -54,7 +54,7 @@ def predict_image(image: Image.Image, model, proc, device: str, *, tile: int, ov
 
 def predict_paths(ckpt: str | Path, inputs: list[str | Path], out_dir: str | Path, *,
                   tile: int | None = None, overlap: float | None = None, crop=None,
-                  score: float = 0.3, device: str | None = None, batch: int = 4,
+                  score: float = 0.5, device: str | None = None, batch: int = 4,
                   threads: int | None = None, max_side: int | None = None,
                   overlay: bool = True) -> dict:
     """``max_side`` downscales the photo before tiling (boxes are scaled back; ``tile``/``crop`` are

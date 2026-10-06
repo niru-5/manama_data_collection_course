@@ -38,6 +38,7 @@ class Project:
     train_model: str = "small"
     train_batch: int = 4
     train_workers: int = 2
+    extra_image_fields: list[dict] = field(default_factory=list)   # per-photo properties added in the app
 
     # ---- layout -------------------------------------------------------
     @property
@@ -63,9 +64,13 @@ class Project:
     @property
     def reports_dir(self) -> Path: return self.workdir / "reports"
 
+    def image_fields(self):
+        from .schema import image_fields
+        return image_fields(self.extra_image_fields)
+
     def store(self):
         from .store import Store
-        return Store(self.workdir, self.classes)
+        return Store(self.workdir, self.classes, [e["key"] for e in self.extra_image_fields])
 
     def resolve_device(self) -> str:
         if self.device != "auto":

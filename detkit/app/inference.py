@@ -10,6 +10,7 @@ import csv
 import io
 import json
 from pathlib import Path
+from typing import Callable
 
 from PIL import Image
 
@@ -149,14 +150,18 @@ def overlay(path: Path, dets: list[dict], classes: list[str], out: Path, maxside
 
 def run_inference(paths: list[Path], per_photo: dict[str, dict], project, *, ckpt: str, device: str,
                   score: float, tile: int, overlap: float, max_side: int, roi_text: str, model_name: str,
-                  cache: Path) -> tuple[list[dict], list[dict], list[str]]:
-    """Run all photos. ``per_photo[file] = {crop, total_weight_g}`` (optional).
-    Returns ``(rows, items, overlay_paths)``; *items* keep the detections for Save as samples."""
+                  cache: Path, on_photo: Callable[[int, int, str], None] | None = None
+                  ) -> tuple[list[dict], list[dict], list[str]]:
+    """Run all photos. ``per_photo[file] = {crop, total_weight_g}`` (optional). ``on_photo(i, n, name)``
+    is called before photo *i* (progress). Returns ``(rows, items, overlay_paths)``; *items* keep the
+    detections for Save as samples."""
     cfg = W.load_config(project.workdir)
     model = load_weight_model(project.workdir, model_name, cfg)
     bundle = P.load_bundle(ckpt, device)
     rows, items, overlays = [], [], []
-    for p in paths:
+    for i, p in enumerate(paths):
+        if on_photo:
+            on_photo(i, len(paths), p.name)
         meta = {k: v for k, v in (per_photo.get(p.name) or {}).items() if v not in (None, "")}
         crop = meta.get("crop")
         try:

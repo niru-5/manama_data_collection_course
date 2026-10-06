@@ -26,15 +26,15 @@ The test split is **not** linked into the training workdir, so it cannot be used
 ## 3. Train (about 2 hours on one 8 GB GPU)
 ```bash
 cd data_collection_project
-D=".venv/bin/python -m detkit"
-$D init --workdir runs/repro --flow gpu --tile 1500 --overlap 0.2 \
+source .venv/bin/activate      # once in every new terminal (see README)
+python -m detkit init --workdir runs/repro --flow gpu --tile 1500 --overlap 0.2 \
         --classes corn,peanuts,popcorn_corn,pumpkin,sunflower,wheat
 mkdir -p runs/repro/coco
 ln -s "$(realpath ../datasets/grain_detection_public/coco/train)" runs/repro/coco/train
 ln -s "$(realpath ../datasets/grain_detection_public/coco/val)"   runs/repro/coco/val
 
 PYTHONHASHSEED=1337 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-$D train --workdir runs/repro --name aug --model small --epochs 30 \
+python -m detkit train --workdir runs/repro --name aug --model small --epochs 30 \
          --batch-size 2 --grad-accum 8 --lr 1e-4 --weight-decay 1e-4 \
          --seed 1337 --num-workers 4 --eval-batch-size 4 --logging-steps 10
 # result: runs/repro/checkpoints/aug/final   (best validation checkpoint)
@@ -68,16 +68,16 @@ If epoch 3 is still below ~0.7, check that `coco/train` is linked correctly and 
 ```bash
 DS=../datasets/grain_detection_public ; CK=runs/repro/checkpoints/aug/final
 # (a) val, photo level: tiled inference on full photos; take the best-F1 score from the report (expect ~0.38)
-$D eval --workdir runs/repro --gt $DS/annotations/val_photos.json --images $DS/photos/val --level source \
+python -m detkit eval --workdir runs/repro --gt $DS/annotations/val_photos.json --images $DS/photos/val --level source \
         --tile 1500 --overlap 0.2 --model $CK --score 0.05 --map --op-score 0.5 --out runs/repro/eval/val_photo --name val_photo \
         --gt-note "automatic labels"
 # (b) re-score val and test at that threshold (here 0.384)
 TH=0.384
 for S in val test; do
-  $D eval --workdir runs/repro --gt $DS/annotations/${S}_photos.json --images $DS/photos/$S --level source \
+  python -m detkit eval --workdir runs/repro --gt $DS/annotations/${S}_photos.json --images $DS/photos/$S --level source \
           --tile 1500 --overlap 0.2 --model $CK --score 0.05 --map --op-score $TH --out runs/repro/eval/${S}_photo --name ${S}_photo \
           --gt-note "automatic labels"
-  $D eval --workdir runs/repro --gt $DS/coco/$S/labels.json --images $DS/coco/$S/images --level tile \
+  python -m detkit eval --workdir runs/repro --gt $DS/coco/$S/labels.json --images $DS/coco/$S/images --level tile \
           --model $CK --score 0.05 --map --op-score $TH --out runs/repro/eval/${S}_tile --name ${S}_tile --gt-note "automatic labels"
 done
 ```

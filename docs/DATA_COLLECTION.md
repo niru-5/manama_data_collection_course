@@ -26,10 +26,10 @@ add a `Field(...)` to get a new form field and table column.
 
 ## Import
 ```bash
-$D import-photos --workdir $W --images my_photos/ --crop wheat
-$D import-photos --workdir $W --images my_photos/ --meta weights.csv     # per-photo metadata
+python -m detkit import-photos --workdir $W --images my_photos/ --crop wheat
+python -m detkit import-photos --workdir $W --images my_photos/ --meta weights.csv     # per-photo metadata
 # new crop
-$D import-photos --workdir $W --images corn_photos/ --crop corn --add-class corn
+python -m detkit import-photos --workdir $W --images corn_photos/ --crop corn --add-class corn
 ```
 `weights.csv`: column `file` plus any keys from `detkit/schema.py`. Re-importing is safe.
 

@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 
 from PIL import Image
+
+from . import logic as L
 
 
 _MODELS: dict[tuple[str, str], tuple] = {}
@@ -114,7 +116,7 @@ def parse_roi(text: str | None, size: tuple[int, int]) -> tuple[int, int, int, i
 
 # ---- RF-DETR -----------------------------------------------------------------------------------
 def propose_rfdetr(image: Image.Image, bundle, classes: list[str], crop: str | None, *,
-                   score: float = 0.3, tile: int = 800, overlap: float = 0.2, max_side: int = 0,
+                   score: float = 0.5, tile: int = 800, overlap: float = 0.2, max_side: int = 0,
                    roi: tuple[int, int, int, int] | None = None,
                    predict_fn: Callable | None = None) -> tuple[list[dict], dict]:
     """Tiled RF-DETR proposals for one photo. ``max_side`` > 0 downsizes the (ROI of the) photo so
@@ -142,3 +144,30 @@ def propose_rfdetr(image: Image.Image, bundle, classes: list[str], crop: str | N
     return boxes, {"detected": len(dets), "dropped_unknown_label": dropped, "factor": round(factor, 3),
                    "model_classes": list(id2label.values())}
 
+
+
+def propose_photos(project, files: list[str], bundle, *, score: float = 0.5, tile: int = 800,
+                   overlap: float = 0.2, max_side: int = 0, mode: str = L.MODES[0]
+                   ) -> Iterator[tuple[str, int | None, str | None]]:
+    """Batch proposals for photos in ``W/photos``: each photo's boxes are combined with the stored ones
+    (*mode*, see ``logic.combine``) and saved UNREVIEWED; metadata is kept. Reviewed photos are never
+    touched. A generator (one photo per step, so a caller can show progress or stop): yields
+    ``(file, n_boxes, None)`` or ``(file, None, reason)`` when the photo was skipped."""
+    store = project.store()
+    for f in files:
+        _old, meta = store.get_image(f)
+        if meta.get("reviewed"):
+            yield f, None, "already reviewed"
+            continue
+        crop = meta.get("crop") or (project.classes[0] if len(project.classes) == 1 else None)
+        try:
+            with Image.open(project.photos_dir / f) as im:
+                size = im.size
+                new, _info = propose_rfdetr(im.convert("RGB"), bundle, project.classes, crop, score=score,
+                                            tile=tile, overlap=overlap, max_side=max_side)
+        except (ValueError, OSError) as e:
+            yield f, None, str(e)
+            continue
+        boxes = L.combine(store.get_image(f)[0], new, mode)
+        store.upsert_image(f, size[0], size[1], boxes, {}, reviewed=False, proposer="rfdetr")
+        yield f, len(boxes), None

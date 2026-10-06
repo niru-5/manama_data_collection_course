@@ -38,6 +38,15 @@ AUTO_IMAGE_KEYS = ("reviewed", "reviewed_at", "proposer")
 IMAGE_KEYS = [f.key for f in IMAGE_FIELDS]
 BOX_KEYS = [f.key for f in BOX_FIELDS]
 
+# Extra per-photo properties a project adds itself (app: "Add an extra property"; stored in
+# project.json -> extra_image_fields as [{"key", "kind", "unit"}]), e.g. annotator, moisture_pct.
+EXTRA_KINDS = ("str", "float", "int")
+
+
+def image_fields(extra: list[dict] | None = None) -> list[Field]:
+    """IMAGE_FIELDS followed by the project's extra properties."""
+    return IMAGE_FIELDS + [Field(e["key"], e.get("kind", "str"), e.get("unit", "")) for e in extra or []]
+
 
 def coerce(f: Field, value):
     """Convert a UI/CSV value to the field's type; empty -> None."""

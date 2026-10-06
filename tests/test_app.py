@@ -105,6 +105,27 @@ def test_add_class_appends_and_persists(wd):
             L.add_class(wd, bad)
 
 
+def test_add_image_field_persists_and_saves(wd):
+    f = L.add_image_field(wd, " Moisture pct ", "float", "%")
+    assert (f.key, f.kind, f.unit) == ("moisture_pct", "float", "%")
+    L.add_image_field(wd, "annotator")
+    q = Project.load(wd.workdir)
+    assert [x.key for x in q.image_fields()][-2:] == ["moisture_pct", "annotator"]
+    for bad in ("", "crop", "reviewed", "annotator", "1st", "a-b"):
+        with pytest.raises(ValueError):
+            L.add_image_field(q, bad)
+    with pytest.raises(ValueError):
+        L.add_image_field(q, "x", "date")
+    with pytest.raises(ValueError):
+        L.add_image_field(q, "x", max_extra=2)
+    L.save_review(q, "small.png", [], {"moisture_pct": "12.5", "annotator": " ana "})
+    meta = q.store().get_image("small.png")[1]
+    assert meta["moisture_pct"] == 12.5 and meta["annotator"] == "ana"
+    assert L.meta_to_form(meta, q.image_fields())[-2:] == [12.5, "ana"]
+    with pytest.raises(ValueError):
+        L.save_review(q, "small.png", [], {"moisture_pct": "wet"})
+
+
 def test_import_photos_no_overwrite(wd, tmp_path):
     src = tmp_path / "small.png"
     Image.new("RGB", (10, 10)).save(src)
@@ -297,3 +318,40 @@ def test_infer_via_client(wd, monkeypatch, tmp_path):
         assert wd.store().get_image("small_1.png")[1]["reviewed"] is False
     finally:
         demo.close()
+
+
+def test_propose_photos_batch(wd, monkeypatch):
+    _fake_propose(monkeypatch, n=2)
+    L.save_review(wd, "big.jpg", [{"bbox": [0, 0, 9, 9], "class": "wheat"}], {"crop": "wheat"})   # reviewed
+    wd.store().upsert_image("small.png", 800, 600, [{"bbox": [700, 500, 750, 550], "class": "sunflower",
+                                                       "origin": "manual"}],
+                            {"crop": "sunflower", "pile_id": "p1"}, reviewed=False)
+    got = list(P.propose_photos(wd, ["big.jpg", "small.png"], "bundle", score=0.5))
+    assert got == [("big.jpg", None, "already reviewed"), ("small.png", 3, None)]   # 1 manual kept + 2 new
+    boxes, meta = wd.store().get_image("small.png")
+    assert [b["origin"] for b in boxes] == ["manual", "rfdetr", "rfdetr"] and boxes[1]["class"] == "sunflower"
+    assert meta["reviewed"] is False and meta["pile_id"] == "p1" and meta["proposer"] == "rfdetr"
+    assert len(wd.store().get_image("big.jpg")[0]) == 1                                # reviewed untouched
+    gen = P.propose_photos(wd, ["small.png"], "bundle", mode="replace all")            # stop after one photo
+    next(gen)
+    gen.close()
+    assert len(wd.store().get_image("small.png")[0]) == 2
+
+
+def test_batch_propose_ui_handler(wd, monkeypatch, tmp_path):
+    pytest.importorskip("gradio")
+    _fake_propose(monkeypatch, n=2)
+    from detkit.app.ui import build_app
+
+    demo = build_app(wd.workdir)
+    fn = next(f.fn for f in demo.fns.values() if getattr(f.fn, "__name__", "") == "run_rf_all")
+    by_label = {getattr(b, "label", None): b for b in demo.blocks.values()}
+    d = {b: b.value for b in demo.blocks.values() if hasattr(b, "value")}
+    d[by_label["RF-DETR checkpoint (folder with config.json)"]] = str(tmp_path)
+    d[by_label["Boxes"]] = __import__("pandas").DataFrame(columns=L.table_headers())     # empty box table
+    state = next(b for b in demo.blocks.values() if type(b).__name__ == "State")
+    d[state] = {"files": [], "file": None, "size": None, "scale": 1.0, "boxes": [], "sig0": "[]", "form0": [],
+                "proposer": None, "drafts": {}}
+    outs = list(fn(d, progress=lambda *a, **k: None))
+    assert len(outs) == 3 and "Batch done: 2/2 photos, 4 boxes" in outs[-1][4]
+    assert all(len(wd.store().get_image(f)[0]) == 2 for f in ("big.jpg", "small.png"))

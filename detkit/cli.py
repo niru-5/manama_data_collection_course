@@ -170,7 +170,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--model", required=True, help="checkpoint dir (…/final)")
     s.add_argument("--images", nargs="+", required=True)
     s.add_argument("--out", default="predictions")
-    s.add_argument("--score", type=float, default=0.3)
+    s.add_argument("--score", type=float, default=0.5)
     s.add_argument("--tile", type=int)
     s.add_argument("--overlap", type=float)
     s.add_argument("--crop", help="x0,y0,x1,y1 region to scan (default: whole photo)")
