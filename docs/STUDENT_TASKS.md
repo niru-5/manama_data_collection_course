@@ -50,7 +50,8 @@ x grams per kernel) or `--model area_x_constant` (weight = box area x grams per 
 
 ## 3. Bounds and error propagation
 * What could be the bounds of your predictions? Make the models return `low_g` / `high_g` (`TODO(student)` in
-  `detkit/weight/models.py`); the app's Inference tab shows them.
+  `detkit/weight/models.py`); the app's Inference tab shows them. `evaluate_model` (`detkit/weight/stats.py`) gives
+  the per-photo errors (predicted vs balance) to start from.
 * How does the error propagate across the different stages (camera / scale, detector, kernel weight, balance, ...)?
   Implement `propagate`, fed with the error of each stage **as you measured it in task 1**. Which stage dominates,
   and what would you improve first?
@@ -59,7 +60,8 @@ x grams per kernel) or `--model area_x_constant` (weight = box area x grams per 
 
 ## 4. Would the conclusions hold if your team-mate repeats it?
 The person who did **not** collect the data in tasks 2-3 now collects a small new sample, following only the written
-procedure. Apply the model from tasks 2-3 to it, without re-fitting:
+procedure. Apply the model from tasks 2-3 to it, without re-fitting (`evaluate_model(model, new_samples)` gives the
+errors per photo, the bias and MAPE; `detkit weight predict` prints the same):
 * Do the new weights fall inside your bounds from task 3?
 * Calibrate the constant on the new sample alone: is it the same within its uncertainty?
 * Does the chosen feature still correlate best? Do your task 2 conclusions still hold?
