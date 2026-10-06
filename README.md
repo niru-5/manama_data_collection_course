@@ -1,9 +1,9 @@
-# Course project: estimate the value of grain from a photo
+# Course project: estimate the weight of grain from a photo
 
-> Photo of grain  ->  count / pixels  ->  weight (g)  ->  cost
+> Photo of grain  ->  count / pixels  ->  weight (g)
 
 You get a working grain detector (RF-DETR) and a toolkit (`detkit`) to collect photos and turn detections into
-weight and price. The course is about **designing the data-collection process** so that the provided model can be
+a weight. Each group works on one crop. The course is about **designing the data-collection process** so that the provided model can be
 used to estimate weight: plan it, identify the sources of error, and measure them where you can. You are graded on
 how you **collect data, measure uncertainty and justify your conclusions**, not on detector accuracy.
 
@@ -113,17 +113,17 @@ Licenses: the code in this repository is MIT (`LICENSE`); the dataset and the mo
 | Check detections, enter metadata | `detkit app`, tab **Review** | [docs/APP.md](docs/APP.md) |
 | (optional) Split + train | `detkit split --from-reviewed`, `detkit train` | [docs/TRAINING.md](docs/TRAINING.md) |
 | Evaluate the detector | `detkit eval` | [docs/EVAL.md](docs/EVAL.md) |
-| Count -> weight -> cost | app tab **Inference**, `detkit weight ...` | [docs/WEIGHT.md](docs/WEIGHT.md) |
-| Your tasks | `TODO(student)` markers | [docs/STUDENT_TASKS.md](docs/STUDENT_TASKS.md) |
+| Count / area -> weight | app tab **Inference**, `detkit weight ...` | [docs/WEIGHT.md](docs/WEIGHT.md) |
+| Your tasks (1-6) | experiments, `TODO(student)` markers, report | [docs/STUDENT_TASKS.md](docs/STUDENT_TASKS.md) |
 
-Find your tasks in the code: `git grep -n "TODO(student)" -- detkit`. Task table: [docs/STUDENT_TASKS.md](docs/STUDENT_TASKS.md).
+The tasks: [docs/STUDENT_TASKS.md](docs/STUDENT_TASKS.md). The code parts: `git grep -n "TODO(student)" -- detkit`.
 Check your work (environment activated): `python -m pytest tests/test_student_tasks.py -q -rs`
 (Windows: `python -m pytest tests\test_student_tasks.py -q -rs`).
 
 ## Folder map
 ```
 detkit/app/       Gradio app (Review tab: ui.py, Inference tab: inference_ui.py)
-detkit/weight/    features, models*, stats*, cost*   (* contains TODOs)
+detkit/weight/    features, models*, stats*, config   (* contains TODOs)
 detkit/           train.py predict.py evaluate.py split.py tiling.py store.py schema.py
 detkit/vendor/    copied trainer (leave alone)
 docs/             the documents above

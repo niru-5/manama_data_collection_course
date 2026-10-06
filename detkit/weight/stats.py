@@ -37,11 +37,25 @@ def _metrics(rows: list[dict]) -> dict:
 
 def learning_curve(samples: SampleTable, x_key: str, sizes: list[int], y_key: str = "weight_g",
                    crop: str | None = None, repeats: int = 200):
-    """TODO(student) task 3. Return one entry per value in ``sizes``."""
-    raise NotImplementedError("learning_curve: student task 3 (docs/STUDENT_TASKS.md)")
+    """TODO(student) task 2. How does the relation between ``x_key`` and ``y_key`` settle as the number of
+    samples grows? Return one dict per value in ``sizes``, each with at least ``"n"`` (the size) plus what
+    you measured over ``repeats`` random subsets of that size. Photos of the same pile (``pile_id``) are
+    not independent samples. Return ``None`` with fewer than 3 weighed photos."""
+    raise NotImplementedError("learning_curve: student task 2 (docs/STUDENT_TASKS.md)")
 
 
 def bootstrap_ci(samples: SampleTable, x_key: str, y_key: str = "weight_g", crop: str | None = None,
                  stat: str = "r", n_boot: int = 1000):
-    """TODO(student) task 4. ``stat`` is "r" or "slope"; return ``(lo, hi)``."""
-    raise NotImplementedError("bootstrap_ci: student task 4 (docs/STUDENT_TASKS.md)")
+    """TODO(student) task 2. Confidence interval of the correlation (``stat="r"``) or of the slope
+    (``stat="slope"``) of ``y_key`` against ``x_key``; return ``(lo, hi)``. Photos of the same pile
+    (``pile_id``) are not independent samples. Return ``None`` with fewer than 3 weighed photos."""
+    raise NotImplementedError("bootstrap_ci: student task 2 (docs/STUDENT_TASKS.md)")
+
+
+def propagate(rel_errors: dict[str, float], weight_g: float) -> dict:
+    """TODO(student) task 3. ``rel_errors`` = {stage: relative error of that stage}, e.g.
+    {"scale": 0.02, "detector": 0.05, "kernel_weight": 0.03}, measured in your own experiments.
+
+    Return a dict with ``rel_total`` (relative error of the weight), ``weight_u_g`` (absolute, in g),
+    ``dominant`` (stage contributing most) and ``budget`` ({stage: share of the total})."""
+    raise NotImplementedError("propagate(): student task 3 (docs/STUDENT_TASKS.md)")

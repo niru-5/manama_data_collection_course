@@ -5,9 +5,8 @@ import pytest
 
 from detkit.cli import main
 from detkit.project import Project
-from detkit.weight import (MODELS, CountTimesConstant, LinearAreaModel, SampleTable, WeightModel,
-                           cost_of, evaluate_model, get_model,
-                           image_features, load_config, save_config)
+from detkit.weight import (MODELS, AreaTimesConstant, CountTimesConstant, SampleTable, WeightModel,
+                           evaluate_model, get_model, image_features, load_config, save_config)
 
 
 def box(x, y, w=10, h=20, label="wheat"):
@@ -78,21 +77,22 @@ def test_count_times_constant(tmp_path):
     assert m2.constants == m.constants
 
 
-def test_todo_models_raise_helpfully():
-    assert set(MODELS) == {"count_x_constant", "linear_area"}
-    for cls in (LinearAreaModel,):
-        m = get_model(cls.name)
-        assert not m.implemented
-        with pytest.raises(NotImplementedError, match="student task"):
-            m.fit(SampleTable())
-        with pytest.raises(NotImplementedError, match="student task"):
-            m.predict({"count": 1})
+def test_area_times_constant(tmp_path):
+    assert set(MODELS) == {"count_x_constant", "area_x_constant"}
+    m = AreaTimesConstant()
+    with pytest.raises(ValueError, match="calibrate"):                  # no default: camera-dependent
+        m.predict({"total_area_px": 100}, "wheat")
+    t = SampleTable.from_project(make_project(tmp_path)).with_weight()
+    m.fit(t)
+    f = t.rows[0].features
+    assert m.predict(f, "wheat").weight_g == pytest.approx(f["total_area_px"] * m.constants["wheat"])
+    assert 0.04 / 200 < m.constants["wheat"] < 0.07 / 200                # boxes are 10x20 px
+    assert WeightModel.from_dict(m.to_dict()).constants == m.constants
     with pytest.raises(KeyError):
         get_model("nope")
 
 
-def test_cost_and_config(tmp_path):
-    assert cost_of(500, 0.4) == pytest.approx(0.2)
+def test_config(tmp_path):
     cfg = load_config(tmp_path)
     assert cfg["model"] == "count_x_constant" and cfg["constants"]["wheat"] > 0
     cfg["constants"]["wheat"] = 0.06
@@ -107,6 +107,10 @@ def test_cli(tmp_path, capsys):
     assert main(["weight", "predict", "--workdir", w, "--out", str(tmp_path / "p.csv")]) == 0
     out = capsys.readouterr().out
     assert "w1.jpg" in out and (tmp_path / "p.csv").exists()
-    assert main(["weight", "predict", "--workdir", w, "--model", "linear_area"]) == 2
+    assert main(["weight", "predict", "--workdir", w, "--model", "area_x_constant"]) == 1   # not calibrated
     assert main(["weight", "calibrate", "--workdir", w]) == 0
     assert (tmp_path / "weight_config.json").exists()
+    assert main(["weight", "calibrate", "--workdir", w, "--model", "area_x_constant"]) == 0
+    cfg = load_config(w)
+    assert cfg["model"] == "area_x_constant" and cfg["area_constants"]["wheat"] > 0 and cfg["constants"]["wheat"] > 0
+    assert main(["weight", "predict", "--workdir", w]) == 0

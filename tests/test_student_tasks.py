@@ -1,16 +1,17 @@
 """Self-check for the student tasks (docs/STUDENT_TASKS.md).
 
-Run:  .venv/bin/python -m pytest tests/test_student_tasks.py -q -rs
+Run:  python -m pytest tests/test_student_tasks.py -q -rs
 
 A task that is not implemented yet is reported as SKIPPED with its task number ("TODO task 2").
+Only tasks 2 and 3 have code; the others are experiments and the report (docs/STUDENT_TASKS.md).
 Once you implement it, the test below runs for real and must pass. Do not edit these tests to make them pass.
 """
 
 import numpy as np
 import pytest
 
-from detkit.weight import (CountTimesConstant, LinearAreaModel, SampleTable, bootstrap_ci,
-                           cost_of, evaluate_model, learning_curve, propagate)
+from detkit.weight import (AreaTimesConstant, CountTimesConstant, SampleTable, bootstrap_ci, learning_curve,
+                           propagate)
 
 A2G = 0.002          # true grams per px^2 of total box area
 MM = 0.5             # mm per px used for the synthetic scale
@@ -37,39 +38,33 @@ def todo(task, fn, *a, **kw):
         pytest.skip(f"TODO task {task}: not implemented yet (docs/STUDENT_TASKS.md)")
 
 
-def test_task2_linear_area_model_recovers_slope():
-    t = synthetic()
-    m = todo(2, LinearAreaModel().fit, t)
-    s = t.rows[0]
-    est = m.predict(s.features, s.crop)
-    assert est.weight_g == pytest.approx(s.weight_g, rel=0.15)
-    assert evaluate_model(m, t)["mape"] < 0.1
+def test_task2_learning_curve_one_entry_per_size():
+    out = todo(2, learning_curve, synthetic(40), "total_area_px", sizes=[5, 10, 20, 40], repeats=50)
+    assert out is not None and len(out) == 4 and [e["n"] for e in out] == [5, 10, 20, 40]
 
 
-def test_task3_learning_curve_gets_narrower():
-    out = todo(3, learning_curve, synthetic(40), "total_area_px", sizes=[5, 10, 20, 40], repeats=50)
-    assert out is not None and len(out) == 4
-
-
-def test_task4_bootstrap_ci_brackets_r():
-    lo, hi = todo(4, bootstrap_ci, synthetic(40), "total_area_px", stat="r", n_boot=200)
+def test_task2_bootstrap_ci_brackets_r():
+    lo, hi = todo(2, bootstrap_ci, synthetic(40), "total_area_px", stat="r", n_boot=200)
     assert 0.9 < lo <= hi <= 1.0
 
 
-def test_task6_propagate_returns_budget():
-    out = todo(6, propagate, {"camera": 0.02, "detector": 0.05, "model": 0.03}, weight_g=100.0, price_per_kg=0.25)
-    assert out["cost_u"] > 0 and out["dominant"] == "detector"
+def test_task2_too_few_samples_give_none():
+    assert todo(2, bootstrap_ci, synthetic(2), "total_area_px", n_boot=50) is None
+    assert todo(2, learning_curve, synthetic(2), "total_area_px", sizes=[2], repeats=5) is None
+
+
+def test_task3_propagate_returns_budget():
+    out = todo(3, propagate, {"scale": 0.02, "detector": 0.05, "kernel_weight": 0.03}, weight_g=100.0)
+    assert out["dominant"] == "detector" and out["weight_u_g"] == pytest.approx(100.0 * out["rel_total"])
     assert 0.05 <= out["rel_total"] <= 0.02 + 0.05 + 0.03
+    assert sum(out["budget"].values()) == pytest.approx(1.0)
 
 
-def test_task7_baseline_gives_interval():
+@pytest.mark.parametrize("model", [CountTimesConstant, AreaTimesConstant])
+def test_task3_models_give_bounds(model):
     t = synthetic()
-    m = CountTimesConstant().fit(t)
+    m = model().fit(t)
     est = m.predict(t.rows[0].features, "wheat")
     if est.low_g is None or est.high_g is None:
-        pytest.skip("TODO task 7: CountTimesConstant.predict should return low_g/high_g")
-    assert est.low_g <= est.weight_g <= est.high_g
-
-
-def test_cost_of_baseline_works():
-    assert cost_of(500, 0.4) == pytest.approx(0.2)
+        pytest.skip(f"TODO task 3: {model.__name__}.predict should return low_g/high_g")
+    assert est.low_g < est.weight_g < est.high_g

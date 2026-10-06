@@ -1,4 +1,4 @@
-"""Inference tab logic (no Gradio): detect -> features -> weight -> cost, save as samples, constants/prices.
+"""Inference tab logic (no Gradio): detect -> features -> weight, save as samples, model constants.
 
 Everything heavy is reached through module attributes (``P.load_bundle``, ``P.propose_rfdetr``) so tests
 can swap in a fake predictor. Boxes are in ORIGINAL photo pixels.
@@ -20,9 +20,9 @@ from ..viz import draw_boxes
 from . import logic as L
 from . import proposals as P
 
-TODO_TASKS = {"linear_area": 2}
 RESULT_COLUMNS = ["file", "counts", "count", "total_area_px", "weight_g", "low_g", "high_g",
-                  "measured_g", "error_pct", "cost", "note"]
+                  "measured_g", "error_pct", "note"]
+CONST_COLUMNS = ["crop", "g_per_kernel", "g_per_px2"]     # count_x_constant, area_x_constant
 SAMPLE_DIR = "models"                       # W/models/<name>.json = fitted student model (optional)
 
 
@@ -58,17 +58,17 @@ def model_choices() -> list[tuple[str, str]]:
 
 
 def load_weight_model(workdir: Path, name: str, cfg: dict) -> W.WeightModel:
-    """Model by name; ``count_x_constant`` uses the (editable) constants of the config; other models
+    """Model by name; feature x constant models use the (editable) constants of the config; other models
     are restored from ``W/models/<name>.json`` when a student saved one."""
-    if name == "count_x_constant":
-        return W.CountTimesConstant(cfg["constants"])
+    key = getattr(W.MODELS.get(name), "config_key", None)
+    if key:
+        return W.get_model(name, constants=cfg[key])
     f = Path(workdir) / SAMPLE_DIR / f"{name}.json"
     return W.WeightModel.load(f) if f.exists() else W.get_model(name)
 
 
 def todo_message(name: str) -> str:
-    n = TODO_TASKS.get(name)
-    return f"student TODO: see docs/STUDENT_TASKS.md task {n}" if n else "student TODO: see docs/STUDENT_TASKS.md"
+    return f"{name}: student TODO, see docs/STUDENT_TASKS.md"
 
 
 # ---- one photo -------------------------------------------------------------------------------------
@@ -93,13 +93,13 @@ def dominant_class(dets: list[dict]) -> str | None:
 
 
 def estimate_row(file: str, dets: list[dict], meta: dict, model: W.WeightModel, cfg: dict) -> dict:
-    """One results-table row: features -> model -> cost (+ error vs the measured weight)."""
+    """One results-table row: features -> model -> weight (+ error vs the measured weight)."""
     feats = W.image_features(dets, meta)
     crop = meta.get("crop") or dominant_class(dets)
     per = ", ".join(f"{k[6:]} {v}" for k, v in feats.items() if k.startswith("count_")) or "-"
     row = {"file": file, "counts": per, "count": feats["count"], "total_area_px": round(feats["total_area_px"]),
            "weight_g": None, "low_g": None, "high_g": None, "measured_g": meta.get("total_weight_g"),
-           "error_pct": None, "cost": None, "note": ""}
+           "error_pct": None, "note": ""}
     try:
         est = model.predict(feats, crop)
     except NotImplementedError:
@@ -116,10 +116,6 @@ def estimate_row(file: str, dets: list[dict], meta: dict, model: W.WeightModel, 
     m = row["measured_g"]
     if m:
         row["error_pct"] = round(100 * (est.weight_g - m) / m, 1)
-    price = cfg.get("price_per_kg", {})
-    ppk = price.get(crop, price.get("default"))
-    if ppk is not None:
-        row["cost"] = round(W.cost_of(est.weight_g, ppk), 4)
     return row
 
 
@@ -200,23 +196,23 @@ def save_samples(project, items: list[dict], proposer: str = "rfdetr") -> list[s
 
 def constants_rows(project) -> list[list]:
     cfg = W.load_config(project.workdir)
-    crops = ["default", *[c for c in dict.fromkeys([*project.classes, *cfg["constants"]]) if c != "default"]]
-    ppk = cfg.get("price_per_kg", {})
-    return [[c, cfg["constants"].get(c), ppk.get(c)] for c in crops]
+    cc, ac = cfg["constants"], cfg["area_constants"]
+    crops = ["default", *[c for c in dict.fromkeys([*project.classes, *cc, *ac]) if c != "default"]]
+    return [[c, cc.get(c), ac.get(c)] for c in crops]
 
 
 def save_constants(project, rows) -> str:
     cfg = W.load_config(project.workdir)
-    for c, g, p in rows:
+    for c, g, a in rows:
         c = str(c).strip()
         if not c:
             continue
         try:
             if g not in (None, "") and g == g:
                 cfg["constants"][c] = float(g)
-            if p not in (None, "") and p == p:
-                cfg["price_per_kg"][c] = float(p)
+            if a not in (None, "") and a == a:
+                cfg["area_constants"][c] = float(a)
         except (TypeError, ValueError):
             return f"Could not read the numbers for '{c}'."
     W.save_config(project.workdir, cfg)
-    return "Saved constants and prices to weight_config.json."
+    return "Saved constants to weight_config.json."

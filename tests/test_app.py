@@ -260,11 +260,11 @@ def test_estimate_row_baseline_todo_and_error():
     dets = [{"bbox": [0, 0, 10, 10], "score": 0.9, "label": "wheat"}] * 5
     cfg = W.load_config("/nonexistent")
     row = I.estimate_row("a.jpg", dets, {"crop": "wheat", "total_weight_g": 0.25}, W.CountTimesConstant(cfg["constants"]), cfg)
-    assert row["count"] == 5 and row["weight_g"] == 0.2 and row["error_pct"] == -20.0
-    assert row["cost"] == pytest.approx(0.2 / 1000 * cfg["price_per_kg"]["default"], abs=1e-4) and row["counts"] == "wheat 5"
-    todo = I.estimate_row("a.jpg", dets, {"crop": "wheat"}, W.get_model("linear_area"), cfg)
-    assert todo["weight_g"] is None and "docs/STUDENT_TASKS.md task 2" in todo["note"] and todo["count"] == 5
-    assert any("student TODO" in label for label, _ in I.model_choices())
+    assert row["count"] == 5 and row["weight_g"] == 0.2 and row["error_pct"] == -20.0 and row["counts"] == "wheat 5"
+    assert "cost" not in row
+    uncal = I.estimate_row("a.jpg", dets, {"crop": "wheat"}, I.load_weight_model("/x", "area_x_constant", cfg), cfg)
+    assert uncal["weight_g"] is None and "calibrate" in uncal["note"] and uncal["count"] == 5
+    assert [n for _, n in I.model_choices()] == ["count_x_constant", "area_x_constant"]
 
 
 def test_results_csv():
@@ -294,9 +294,10 @@ def test_run_inference_and_save_samples_roundtrip(wd, tmp_path, monkeypatch):
 
 
 def test_save_constants(wd):
-    assert "Saved" in I.save_constants(wd, [["sunflower", 0.07, 0.3], ["default", "", None]])
-    assert W.load_config(wd.workdir)["constants"]["sunflower"] == 0.07
-    assert I.constants_rows(wd)[0][0] == "default"
+    assert "Saved" in I.save_constants(wd, [["sunflower", 0.07, 2e-6], ["default", "", None]])
+    cfg = W.load_config(wd.workdir)
+    assert cfg["constants"]["sunflower"] == 0.07 and cfg["area_constants"]["sunflower"] == 2e-6
+    assert I.constants_rows(wd)[0][0] == "default" and ["sunflower", 0.07, 2e-6] in I.constants_rows(wd)
 
 
 def test_infer_via_client(wd, monkeypatch, tmp_path):

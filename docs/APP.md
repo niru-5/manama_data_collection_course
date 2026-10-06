@@ -38,16 +38,29 @@ sources in your weight estimate. A photo with no grains is valid: delete all box
 Data is stored in `<workdir>/annotations/reviewed_coco.json`, `<workdir>/meta/image_meta.json`, photos in `<workdir>/photos`.
 
 ## Inference tab
-Photo -> count -> weight -> cost.
+Photo -> count / area -> weight.
 1. Upload photos; optionally fill crop and `total_weight_g`.
 2. Choose checkpoint, score threshold (use your best-F1 value), tile/overlap, ROI, downscale.
-3. Choose the weight model. Constants and prices are editable under *Constants and prices* (saved in `weight_config.json`).
-   Models you have not implemented yet show "student TODO".
+3. Choose the weight model (`count_x_constant` or `area_x_constant`). Their constants per crop are editable under
+   *Model constants* (saved in `weight_config.json`); calibrate them first with `detkit weight calibrate`.
    A progress bar shows which photo is being processed.
-4. Output: overlays, a table (counts, area, weight, interval, error vs measured, cost) and a CSV download.
+4. Output: overlays, a table (counts, area, weight, bounds, error vs measured) and a CSV download.
 5. *Save as samples* adds the photos to the project for review.
 
-Calibrating the baseline constant is on the command line: `detkit weight calibrate` ([WEIGHT.md](WEIGHT.md)).
+Calibrating the constants is on the command line: `detkit weight calibrate --model ...` ([WEIGHT.md](WEIGHT.md)).
+
+## Use from a phone
+Start the app so that other devices on the same network can reach it:
+```bash
+python -m detkit app --workdir runs/mine --ckpt weights/grain_rfdetr_small_v1/final --host 0.0.0.0
+```
+Find the laptop's IP address (Linux: `hostname -I`, macOS: `ipconfig getifaddr en0`, Windows: `ipconfig`, the
+IPv4 address) and open `http://<that-ip>:7860` on the phone. In the Inference tab the upload button can take a
+photo with the phone's camera.
+* The phone and the laptop must be on the same network. Public or university Wi-Fi often blocks devices from
+  reaching each other: use a phone or laptop hotspot instead.
+* Windows asks whether to allow Python through the firewall: allow it on private networks.
+* Anyone on the network can open the app while it runs this way; stop it (Ctrl+C) when you are done.
 
 ## After reviewing
 Go to weight estimation ([WEIGHT.md](WEIGHT.md)). Retraining the detector (`detkit split --from-reviewed` ->

@@ -14,8 +14,9 @@ from . import proposals as P
 PHOTO_COLS = ["file", "crop", "total_weight_g"]
 
 TODO_TEXT = (
-    "**Student tasks** - a weight model marked *(student TODO)* shows counts only until you implement it "
-    "(task 2); `low_g` / `high_g` stay empty until task 7. See `docs/STUDENT_TASKS.md`."
+    "**Student tasks** - `low_g` / `high_g` (the bounds of each estimate) stay empty until task 3. "
+    "Calibrate the constants on your own weighed photos first (`detkit weight calibrate`, task 2). "
+    "See `docs/STUDENT_TASKS.md`."
 )
 
 
@@ -45,7 +46,7 @@ def build_inference_tab(project, wd: Path, ckpt: str | None, device: str) -> Non
     d0 = I.ckpt_defaults(cks[0] if cks else None, project)
     classes = project.classes
 
-    gr.Markdown("### Inference: photos -> boxes -> kernel count -> weight -> cost")
+    gr.Markdown("### Inference: photos -> boxes -> kernel count / area -> weight")
     gr.Markdown(TODO_TEXT)
     with gr.Row():
         with gr.Column(scale=2):
@@ -70,18 +71,19 @@ def build_inference_tab(project, wd: Path, ckpt: str | None, device: str) -> Non
     status = gr.Markdown("")
     gallery = gr.Gallery(label="Detections", columns=4, height=340, object_fit="contain")
     res = gr.Dataframe(headers=I.RESULT_COLUMNS, value=_df([], I.RESULT_COLUMNS), interactive=False,
-                       wrap=True, max_height=300, label="Results (weight from the selected model; cost = weight x price)")
+                       wrap=True, max_height=300, label="Results (weight from the selected model)")
     with gr.Row():
         csv_f = gr.File(label="Download results (CSV)", interactive=False)
         save_b = gr.Button("Save as samples (photos + boxes go to the Review tab, unreviewed)")
     items = gr.State([])
 
-    with gr.Accordion("Constants and prices (weight_config.json)", open=False):
-        const_tbl = gr.Dataframe(headers=["crop", "g_per_kernel", "price_per_kg"], datatype=["str", "number", "number"],
-                                 value=_df(I.constants_rows(project), ["crop", "g_per_kernel", "price_per_kg"]),
+    with gr.Accordion("Model constants (weight_config.json)", open=False):
+        const_tbl = gr.Dataframe(headers=I.CONST_COLUMNS, datatype=["str", "number", "number"],
+                                 value=_df(I.constants_rows(project), I.CONST_COLUMNS),
                                  interactive=True, static_columns=[0], row_count=(0, "fixed"),
-                                 label="grams per kernel (count_x_constant) and price per kg, per crop")
-        const_b = gr.Button("Save constants / prices")
+                                 label="per crop: grams per kernel (count_x_constant), grams per px^2 of box "
+                                       "area (area_x_constant)")
+        const_b = gr.Button("Save constants")
         const_msg = gr.Markdown("")
 
     # ---- events ------------------------------------------------------------------------------
@@ -109,10 +111,9 @@ def build_inference_tab(project, wd: Path, ckpt: str | None, device: str) -> Non
         except (ValueError, FileNotFoundError, OSError) as e:
             raise gr.Error(str(e))
         csv_path = I.write_results_csv(rows, cache / "results.csv")
-        todo = any("student TODO" in (r.get("note") or "") for r in rows)
+        notes = sorted({r.get("note") for r in rows if r.get("weight_g") is None and r.get("note")})
         msg = (f"{len(rows)} photo(s) processed with score >= {d[score]}, tile {int(d[tile])}."
-               + (f" Model '{d[model_dd]}' is a student TODO: showing counts only. See docs/STUDENT_TASKS.md."
-                  if todo else ""))
+               + (" No weight: " + "; ".join(notes) if notes else ""))
         return ovs, _df([[r.get(c) for c in I.RESULT_COLUMNS] for r in rows], I.RESULT_COLUMNS), str(csv_path), \
             msg, its
 
@@ -128,7 +129,7 @@ def build_inference_tab(project, wd: Path, ckpt: str | None, device: str) -> Non
     save_b.click(save, inputs=[items], outputs=[status], api_name=False)
 
     def save_const(rows):
-        return I.save_constants(project, rows.values.tolist()), _df(I.constants_rows(project), ["crop", "g_per_kernel", "price_per_kg"])
+        return I.save_constants(project, rows.values.tolist()), _df(I.constants_rows(project), I.CONST_COLUMNS)
 
     const_b.click(save_const, inputs=[const_tbl], outputs=[const_msg, const_tbl], api_name=False)
 

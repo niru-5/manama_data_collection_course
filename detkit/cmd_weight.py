@@ -20,15 +20,27 @@ def _f(v, fmt="{:.3f}") -> str:
     return "-" if v is None else fmt.format(v)
 
 
+def configured_model(cfg: dict, name: str):
+    """Model *name* with its constants from weight_config.json (models without a config_key: fresh)."""
+    from .weight import MODELS, get_model
+
+    key = getattr(MODELS.get(name), "config_key", None)
+    return get_model(name, constants=cfg[key]) if key else get_model(name)
+
+
 def cmd_predict(a) -> int:
-    from .weight import evaluate_model, get_model, load_config
+    from .weight import evaluate_model, load_config
 
     cfg = load_config(a.workdir)
     name = a.model or cfg["model"]
     samples = _samples(a)
-    model = get_model(name, constants=cfg["constants"]) if name == "count_x_constant" else get_model(name)
     try:
-        if name != "count_x_constant":
+        model = configured_model(cfg, name)
+    except KeyError as ex:
+        print(ex)
+        return 1
+    try:
+        if not getattr(model, "config_key", None):
             model.fit(samples.with_weight())
         recs = []
         for s in samples:
@@ -42,6 +54,9 @@ def cmd_predict(a) -> int:
     except NotImplementedError as ex:
         print(f"model {name!r} is a student TODO: {ex}")
         return 2
+    except ValueError as ex:                                   # e.g. area_x_constant not calibrated yet
+        print(ex)
+        return 1
     print(f"model={name}  photos={len(recs)}")
     print(f"{'file':34s} {'crop':10s} {'count':>5s} {'est_g':>8s} {'true_g':>8s} {'err_%':>7s}")
     for r in recs:
@@ -64,21 +79,21 @@ def cmd_predict(a) -> int:
 
 
 def cmd_calibrate(a) -> int:
-    from .weight import CountTimesConstant, load_config, save_config
+    from .weight import load_config, save_config
 
     cfg = load_config(a.workdir)
     samples = _samples(a).with_weight()
-    model = CountTimesConstant(cfg["constants"]).fit(samples)
-    cfg.update(model="count_x_constant", constants=model.constants)
+    model = configured_model(cfg, a.model).fit(samples)
+    cfg.update({"model": a.model, model.config_key: model.constants})
     p = save_config(a.workdir, cfg)
-    print(f"calibrated on {len(samples)} weighed photos -> {p}")
+    print(f"calibrated {a.model} on {len(samples)} weighed photos -> {p} (default model is now {a.model})")
     for k, v in model.constants.items():
-        print(f"  {k:10s} {v:.4f} g/kernel")
+        print(f"  {k:10s} {v:.6g} {model.unit}")
     return 0
 
 
 def register(sub) -> None:
-    sp = sub.add_parser("weight", help="estimate weight from detections (count x constant baseline)")
+    sp = sub.add_parser("weight", help="estimate weight from detections (count or area x constant)")
     ws = sp.add_subparsers(dest="weight_cmd", required=True)
 
     def common(p, predictions=True):
@@ -91,9 +106,10 @@ def register(sub) -> None:
 
     p = ws.add_parser("predict", help="per-photo count and estimated weight (+ error vs balance)")
     common(p)
-    p.add_argument("--model", help="count_x_constant | linear_area (default: weight_config.json)")
+    p.add_argument("--model", help="count_x_constant | area_x_constant (default: weight_config.json)")
     p.add_argument("--out", help="write CSV")
     p.set_defaults(fn=cmd_predict)
-    p = ws.add_parser("calibrate", help="fit count_x_constant on this project, save weight_config.json")
+    p = ws.add_parser("calibrate", help="fit a model's constants on this project, save weight_config.json")
     common(p)
+    p.add_argument("--model", default="count_x_constant", choices=["count_x_constant", "area_x_constant"])
     p.set_defaults(fn=cmd_calibrate)
