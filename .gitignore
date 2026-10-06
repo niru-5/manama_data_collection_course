@@ -10,3 +10,4 @@ runs/
 *.pt
 *.bin
 weights/*/final/
+.vscode/
